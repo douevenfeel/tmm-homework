@@ -1,54 +1,74 @@
 import cv2
+import os
 
+# Load hat images
+hat_images = []
+hat_folder = "hats"
+for filename in os.listdir(hat_folder):
+    if filename.endswith(".png"):
+        img = cv2.imread(os.path.join(hat_folder, filename), -1)
+        hat_images.append(img)
+
+# Load face cascade
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Initialize video capture from default camera
 cap = cv2.VideoCapture(0)
-hat_img = cv2.imread('hat.png', -1)
-face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+# Set window properties
+cv2.namedWindow('Frame', cv2.WINDOW_NORMAL)
+cv2.resizeWindow('Frame', 800, 600)
+
+# Define empty hat and hat selected index
+current_hat = None
+hat_index = 0
 
 while True:
+    # Capture frame-by-frame
     ret, frame = cap.read()
-    if not ret:
-        break
 
+    # Convert frame to grayscale for face detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Face detection code:
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+    # Detect faces in the grayscale frame
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
+    # Loop through detected faces
     for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        # Determine hat position and size
+        hat_height = int(h * 0.6)
+        hat_width = int(w * 1.2)
+        hat_x = int(x - (hat_width - w) / 2)
+        hat_y = int(y - hat_height * 0.8)
 
-        # Hat placement code:
-        hat_width = int(w * 1.5)
-        hat_height = int(hat_width * hat_img.shape[0] / hat_img.shape[1])
-        hat_x = x - int((hat_width - w) / 2)
-        hat_y = y - hat_height + int(h / 5)
+        # Check if current hat exists and is the correct size
+        if current_hat is not None and current_hat.shape[0] == hat_height and current_hat.shape[1] == hat_width:
+            hat_img_resized = current_hat
+        else:
+            # Select new hat image
+            current_hat = hat_images[hat_index % len(hat_images)]
+            hat_img_resized = cv2.resize(current_hat, (hat_width, hat_height))
 
-        if hat_x < 0:
-            hat_x = 0
-        if hat_x + hat_width > frame.shape[1]:
-            hat_x = frame.shape[1] - hat_width
-        if hat_y < 0:
-            hat_y = 0
-        if hat_y + hat_height > frame.shape[0]:
-            hat_y = frame.shape[0] - hat_height
+        # Create mask for hat
+        alpha_h = hat_img_resized[:, :, 3] / 255.0
+        alpha_l = 1.0 - alpha_h
 
-        hat_alpha = hat_img[:, :, 3] / 255.0
-        hat_rgb = hat_img[:, :, :3]
-        hat_resized = cv2.resize(hat_rgb, (hat_width, hat_height))
-        hat_alpha_resized = cv2.resize(hat_alpha, (hat_width, hat_height))
+        # Add hat to the frame
+        for c in range(0, 3):
+            frame[hat_y:hat_y+hat_height, hat_x:hat_x+hat_width, c] = (alpha_h * hat_img_resized[:, :, c] + alpha_l * frame[hat_y:hat_y+hat_height, hat_x:hat_x+hat_width, c])
 
-        overlay = hat_resized.copy()
-        background = frame[hat_y:hat_y + hat_height, hat_x:hat_x + hat_width]
+        # Increment hat index when R is pressed
+        if cv2.waitKey(1) == ord('r'):
+            hat_index += 1
+            current_hat = None
 
-        for c in range(3):
-            overlay[:, :, c] = hat_resized[:, :, c] * hat_alpha_resized
-            background[:, :, c] = background[:, :, c] * (1 - hat_alpha_resized)
+    # Display the resulting frame
+    cv2.imshow('Frame', frame)
 
-        result = cv2.addWeighted(overlay, 1, background, 1, 0)
-        frame[hat_y:hat_y + hat_height, hat_x:hat_x + hat_width] = result
-
-    cv2.imshow('Hat on Head', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # Exit program when 'q' key is pressed
+    if cv2.waitKey(1) == ord('q'):
         break
 
+# Release video capture and close all windows
 cap.release()
 cv2.destroyAllWindows()
